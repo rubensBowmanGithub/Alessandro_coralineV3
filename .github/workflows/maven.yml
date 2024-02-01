@@ -20,15 +20,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Set up Node.js 16
+      uses: actions/setup-node@v4
+      with:
+        node-version: '16.18.1'
+    
+    - name: Install npm and Bower
+      run: |
+        npm install -g npm@8.19.2
+        npm install -g bower@1.8.14
+
     - uses: actions/checkout@v3
-    - name: Set up JDK 17
+
+    - name: Set up JDK 1.8
       uses: actions/setup-java@v3
       with:
-        java-version: '17'
+        java-version: '8'  # Use '8' instead of '1.8'
         distribution: 'temurin'
         cache: maven
+
+    - name: Copy custom settings.xml
+      run: cp -r .m2 $HOME/
+
     - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      run: mvn -B package -P docs,ui,dist,rpm -DskipTests --file pom.xml
+
+    - name: Set up Grunt CLI v1.4.3 and build
+      run: |
+        npm install -g grunt-cli@1.4.3
+        npm install
+        grunt build
 
     # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
     - name: Update dependency graph
