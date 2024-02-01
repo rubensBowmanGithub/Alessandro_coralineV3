@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Set up Node.js 16
+    - name: Set up Node.js 14
       uses: actions/setup-node@v4
       with:
-        node-version: '16.18.1'
+        node-version: '14'
     
     - name: Install npm and Bower
       run: |
@@ -39,8 +39,11 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
-    - name: Copy custom settings.xml
-      run: cp -r .m2 $HOME/
+    - name: Copy custom settings.xml and archetype-catalog.xml
+      run: |
+        mkdir -p $HOME/.m2
+        cp -r .m2/settings.xml $HOME/.m2/
+        cp -r .m2/archetype-catalog.xml $HOME/.m2/
 
     - name: Build with Maven
       run: mvn -B package -P docs,ui,dist,rpm -DskipTests --file pom.xml
