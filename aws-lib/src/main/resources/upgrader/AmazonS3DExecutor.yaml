@@ -1,0 +1,65 @@
+#
+# Copyright 2019 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+upgraderVersion: 1
+
+upgrades:
+  - toVersion: 2
+    actions:
+      - setConfig:
+          name: config.s3Config.usePathAddressModel
+          value: true
+      # Adds a new credentialMode dropdown, which we need to set to WITH_IAM_ROLES if awsAccessKeyId and
+      # awsSecretAccessKey are both empty.  We do that by introducing a temporary flag to check if each of those are
+      # empty, and then set credentialMode accordingly, finally deleting the temporary flag.
+      - setConfig:
+          lookForName: config.s3Config.awsConfig.awsAccessKeyId
+          ifValueMatches: ^$
+          name: temp.aws.creds.flag
+          value: keyEmpty
+      - setConfig:
+          lookForName: config.s3Config.awsConfig.awsSecretAccessKey
+          ifValueMatches: ^$
+          name: temp.aws.creds.flag
+          value: ${value("temp.aws.creds.flag")}-secretEmpty
+      - setConfig:
+          lookForName: temp.aws.creds.flag
+          ifValueMatches: keyEmpty-secretEmpty
+          name: config.s3Config.awsConfig.credentialMode
+          value: WITH_IAM_ROLES
+          elseName: config.s3Config.awsConfig.credentialMode
+          elseValue: WITH_CREDENTIALS
+      - removeConfigs:
+          namePattern: temp.aws.creds.flag
+  - toVersion: 3
+    actions:
+      # Added STREAMSETS_AWS_S3 Connection type and need to move a few configs around
+      - renameConfig:
+          oldNamePattern: ^config.s3Config.awsConfig.(.*$)
+          newNamePattern: config.s3Config.connection.awsConfig.(0)
+      - renameConfig:
+          oldNamePattern: ^config.s3Config.region$
+          newNamePattern: config.s3Config.connection.region
+      - renameConfig:
+          oldNamePattern: ^config.s3Config.endpoint$
+          newNamePattern: config.s3Config.connection.endpoint
+      - renameConfig:
+          oldNamePattern: ^config.proxyConfig.(.*$)
+          newNamePattern: config.s3Config.connection.proxyConfig.(0)
+      # New pipelines have this set to false; but set to true to maintain original region behavior in older pipelines
+      - setConfig:
+          name: config.s3Config.connection.useRegion
+          value: true

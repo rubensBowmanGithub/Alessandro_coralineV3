@@ -1,0 +1,101 @@
+#!/bin/bash
+#
+# Copyright 2018 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# resolve links - $0 may be a softlink
+PRG="${0}"
+
+while [ -h "${PRG}" ]; do
+ls=`ls -ld "${PRG}"`
+link=`expr "$ls" : '.*-> \(.*\)$'`
+if expr "$link" : '/.*' > /dev/null; then
+PRG="$link"
+else
+PRG=`dirname "${PRG}"`/"$link"
+fi
+done
+
+BASEDIR=`dirname ${PRG}`
+BASEDIR=`cd ${BASEDIR}/..;pwd`
+COR_DIST=${BASEDIR}
+
+COR_HOME=${COR_HOME:=${COR_DIST}}
+source ${COR_HOME}/libexec/coraline-env.sh
+
+COR_CONF=${COR_CONF:=${COR_HOME}/etc}
+COR_DATA=${COR_DATA:=${COR_HOME}/data}
+COR_LOG=${COR_LOG:=${COR_HOME}/log}
+COR_RESOURCES=${COR_RESOURCES:=${COR_HOME}/resources}
+
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.dist.dir=${COR_DIST}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.resources.dir=${COR_RESOURCES}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.conf.dir=${COR_CONF}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.data.dir=${COR_DATA}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.log.dir=${COR_LOG}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dlog4j.configuration=cor-log4j.properties"
+
+STAGELIB_DIR="${COR_DIST}/coraline-libs/streamsets-datacollector-$1-lib"
+
+if [ ! -d "${STAGELIB_DIR}" ]
+then
+  echo
+  echo "Stage $1 library not installed"
+  echo
+  exit 1
+fi
+
+API_CLASSPATH="${COR_DIST}/api-lib/"'*'
+STAGELIB_LIB="${STAGELIB_DIR}/lib/"'*'
+JARS=${API_CLASSPATH}:${STAGELIB_LIB}
+
+if [ -z "$JAVA_HOME" ]
+then
+  JAVA=`which java`
+else
+  JAVA="$JAVA_HOME/bin/java"
+fi
+
+JAVA_VERSION=`$JAVA -version 2>&1 | grep -e '^java version' | sed -e 's/.*"\([0-9]*\)\.\([0-9]*\)\.\([\_0-9]*\)"/\1\.\2/'`
+if [[ "$JAVA_VERSION" = '1.7' ]];
+then
+  echo "ERROR: Detected JDK7 that is no longer supported. Please upgrade to JDK8."
+  exit
+elif [[ "$JAVA_VERSION" = '1.8' ]];
+then
+  echo ""
+else
+  echo "WARN: could not determine Java environment version; expected 1.8, which are the supported versions" >&2
+fi
+
+# Verify correct JVM vendor
+JAVA_VENDOR=`$JAVA -XshowSettings:properties -version 2>&1 | grep -e 'java.vm.name' | sed -e 's/\(.*\)= \(.*\)/\2/'`
+if [[ ! "$JAVA_VENDOR" =~ "Java HotSpot(TM)" ]] && [[ ! "$JAVA_VENDOR" =~ "OpenJDK" ]]
+then
+  echo "WARN: Detected unsupported JDK vendor: $JAVA_VENDOR"
+
+  # And unless unsupported JDK is explicitly enabled, die
+  if [[ "${COR_ALLOW_UNSUPPORTED_JDK}" != "true" ]]
+  then
+  echo "ERROR: Please install supported JDK or explicitly allow unsupported JDKs via COR_ALLOW_UNSUPPORTED_JDK=true"
+    exit 1
+  fi
+fi
+
+shift
+exec ${JAVA} -classpath ${COR_CONF}:${JARS} ${COR_JAVA_OPTS} com.streamsets.datacollector.StageLibCli "$@"
+
+status=$?
+exit $status

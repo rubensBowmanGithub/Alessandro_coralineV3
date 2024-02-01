@@ -1,0 +1,233 @@
+#
+# Copyright 2019 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+upgraderVersion: 1
+
+upgrades:
+  - toVersion: 3
+    actions:
+      - setConfig:
+          name: conf.keyCaptureMode
+          value: NONE
+      - setConfig:
+          name: conf.keyCaptureAttribute
+          value: kafkaMessageKey
+      - setConfig:
+          name: conf.keyCaptureField
+          value: /kafkaMessageKey
+  - toVersion: 4
+    actions:
+      - setConfig:
+          name: conf.dataFormatConfig.basicAuth
+          value: ""
+  - toVersion: 5
+    actions:
+      - setConfig:
+          name: conf.dataFormatConfig.preserveRootElement
+          value: false
+  - toVersion: 6
+    actions:
+      - setConfig:
+          name: conf.timestampsEnabled
+          value: false
+      - setConfig:
+          name: conf.provideKeytab
+          value: false
+      - setConfig:
+          name: conf.userKeytab
+          value: ""
+      - setConfig:
+          name: conf.userPrincipal
+          value: "user/host@REALM"
+  - toVersion: 7
+    actions:
+      # migrate the keystore properties first, since we will need them to process the security option
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.keystoreType
+          mapName: conf.kafkaOptions
+          key: ssl.keystore.type
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.keystore.type
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.keystoreFile
+          mapName: conf.kafkaOptions
+          key: ssl.keystore.location
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.keystore.location
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.keystorePassword
+          mapName: conf.kafkaOptions
+          key: ssl.keystore.password
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.keystore.password
+      # START migrating to conf.connectionConfig.connection.securityConfig.securityOption
+      # pseudocode for Kafka security config upgrade:
+      # legacyOption = "security.protocol" key of "conf.kafkaOptions" map
+      # if legacyOption = "SSL" AND keystoreFile is nonempty
+      #   securityOption = SSL_AUTH
+      # else
+      #   securityOption = legacyOption
+      # first, capture the legacyOption from the map
+      - setConfigFromStringMap:
+          name: temp.upgrade.kafka-security.protocol
+          mapName: conf.kafkaOptions
+          key: security.protocol
+      # next, set a temp config to capture the keystore, but ONLY if the old security protocol was SSL
+      - setConfig:
+          lookForName: temp.upgrade.kafka-security.protocol
+          ifValueMatches: "SSL"
+          name: temp.upgrade.kafka-security.ssl-auth-keystore
+          value: ${value("conf.connectionConfig.connection.securityConfig.keystoreFile")}
+          elseName: temp.upgrade.kafka-security.ssl-auth-keystore
+          elseValue: ""
+      # set the new security option to SSL_AUTH if that keystore config value we captured was nonempty
+      - setConfig:
+          lookForName: temp.upgrade.kafka-security.ssl-auth-keystore
+          ifValueMatches: "^.+$"
+          name: conf.connectionConfig.connection.securityConfig.securityOption
+          value: "SSL_AUTH"
+          elseName: conf.connectionConfig.connection.securityConfig.securityOption
+          elseValue: ${value("temp.upgrade.kafka-security.protocol")}
+      # remove the legacy protocol from the consumer options
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: security.protocol
+      # remove the temp configs we created
+      - removeConfigs:
+          namePattern: temp\.upgrade\.kafka-security..*
+      # set it to a default of PLAINTEXT if it wasn't already set above
+      - setConfig:
+          lookForName: conf.connectionConfig.connection.securityConfig.securityOption
+          ifValueMatches: "^$"
+          name: conf.connectionConfig.connection.securityConfig.securityOption
+          value: "PLAINTEXT"
+      # FINISH migrating to conf.connectionConfig.connection.securityConfig.securityOption
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.kerberosServiceName
+          mapName: conf.kafkaOptions
+          key: sasl.kerberos.service.name
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: sasl.kerberos.service.name
+      - renameConfig:
+          oldNamePattern: conf.provideKeytab
+          newNamePattern: conf.connectionConfig.connection.securityConfig.provideKeytab
+      - renameConfig:
+          oldNamePattern: conf.userKeytab
+          newNamePattern: conf.connectionConfig.connection.securityConfig.userKeytab
+      - renameConfig:
+          oldNamePattern: conf.userPrincipal
+          newNamePattern: conf.connectionConfig.connection.securityConfig.userPrincipal
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.truststoreType
+          mapName: conf.kafkaOptions
+          key: ssl.truststore.type
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.truststore.type
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.truststoreFile
+          mapName: conf.kafkaOptions
+          key: ssl.truststore.location
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.truststore.location
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.truststorePassword
+          mapName: conf.kafkaOptions
+          key: ssl.truststore.password
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.truststore.password
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.keyPassword
+          mapName: conf.kafkaOptions
+          key: ssl.key.password
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.key.password
+      - setConfigFromStringMap:
+          name: conf.connectionConfig.connection.securityConfig.enabledProtocols
+          mapName: conf.kafkaOptions
+          key: ssl.enabled.protocols
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: ssl.enabled.protocols
+      - renameConfig:
+          oldNamePattern: conf.brokerURI
+          newNamePattern: conf.connectionConfig.connection.metadataBrokerList
+  - toVersion: 8
+    actions:
+      - setConfigFromStringMap:
+          name: temp.upgrade.kafka-security.mechanism
+          mapName: conf.kafkaOptions
+          key: sasl.mechanism
+      - setConfig:
+          lookForName: temp.upgrade.kafka-security.mechanism
+          ifValueMatches: "PLAIN"
+          name: conf.connectionConfig.connection.securityConfig.saslMechanism
+          value: true
+      # remove the temp configs we created
+      - removeConfigs:
+          namePattern: temp.upgrade.kafka-security.mechanism
+      # remove the legacy protocol from the consumer options
+      - configStringMapRemove:
+          name: conf.kafkaOptions
+          key: sasl.mechanism
+  - toVersion: 9
+    actions:
+      - setConfig:
+          name: conf.dataFormatConfig.csvParser
+          value: LEGACY_PARSER
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityFieldSeparator
+          value: ${","}
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityLineSeparator
+          value: ${"${str:unescapeJava('\\\\n')}"}
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityEscape
+          value: ${"\\"}
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityQuote
+          value: ${'"'}
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityMaxColumns
+          value: 1000
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityMaxCharsPerColumn
+          value: 1000
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocitySkipEmptyLines
+          value: true
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityAllowComments
+          value: false
+      - setConfig:
+          name: conf.dataFormatConfig.csvUnivocityCommentMarker
+          value: ${"#"}
+      - setConfig:
+          lookForName: conf.connectionConfig.connection.securityConfig.saslMechanism
+          ifValueMatches: true
+          name: conf.connectionConfig.connection.securityConfig.saslMechanism
+          value: "PLAIN"
+          elseName: conf.connectionConfig.connection.securityConfig.saslMechanism
+          elseValue: "GSSAPI"
+
+

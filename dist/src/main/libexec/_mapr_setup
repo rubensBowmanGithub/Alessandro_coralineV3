@@ -1,0 +1,205 @@
+#!/bin/bash -x
+#
+# Copyright 2017 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# Copyright 2016 StreamSets Inc.
+#
+
+#
+# Prerequisites:
+# - The MapR client package must be installed and configured
+#   on the machine where StreamSets is being installed.
+#
+# This script does following:
+# - Obtain MapR version and MapR Home directory
+# - Remove the MapR version from blacklist in etc/cor.properties
+# - Create soft links to MapR client libraries so that StreamSets data collector can load these at runtime.
+# - Add permissions to MapR libraries in coraline-security.policy
+
+BLACKLIST_PROP="system.stagelibs.blacklist"
+PROP_FILENAME="cor.properties"
+POLICY_FILENAME="coraline-security.policy"
+MAPR_LIB_BASE="streamsets-datacollector-mapr"
+
+if [ -z ${COR_HOME} ];then
+  echo "Set the COR_HOME environment variable to the Data Collector installation directory."
+  exit 0
+fi
+
+# Check if COR_HOME really points to the StreamSets Data Collector
+if [ ! -f "${COR_HOME}/bin/coraline" ];then
+   echo "COR_HOME is not pointing to StreamSets Data Collector. Please check the directory path"
+   exit 0
+fi
+
+if [ -z ${COR_CONF} ];then
+  echo "Set the COR_CONF environment variable to the Data Collector configuration directory."
+  exit 0
+fi
+
+# Check if COR_CONF really points to the directory where config files are stored
+if [ ! -f "${COR_CONF}/${PROP_FILENAME}" ];then
+  echo "COR_CONF is not pointing to the directory where config files are stored. Please check the directory path."
+  exit 0
+fi
+
+SDC_PROP_FILE="${COR_CONF}/${PROP_FILENAME}"
+SDC_POLICY_FILE="${COR_CONF}/${POLICY_FILENAME}"
+
+# Confirm cor.properties exists in the expected directory and has a permission to write
+if [ ! -w "${SDC_PROP_FILE}" ]; then
+  echo "Error: Check ${SDC_PROP_FILE} exists and current user has a write permission"
+  echo "Exit."
+  exit 0
+fi
+
+# Check if this is running on supported OS
+if [[ $OSTYPE == "darwin"* ]]; then
+  # OS X requires specifying backup file extension in sed command
+  BACKUP_EXT="''"
+elif [[ $OSTYPE == "cygwin" ]];then
+  echo "Error: Cannot used on Windows OS"
+  exit 0
+fi
+
+# Resolve MapR Version
+if [[ -z "${MAPR_VERSION}" ]];
+then
+  read -p "Please enter the MapR version (default 6.0.0): " MAPR_VERSION
+fi
+MAPR_VERSION=${MAPR_VERSION:=6.0.0}
+# Check if input version is valid
+if ! [[ ${MAPR_VERSION} =~ ^[1-9][0-9]*\.[0-9]*(\.[0-9]*)*$ ]];
+then
+  echo "Error: Invalid MapR version number"
+  exit 0
+fi
+MAPR_VERSION=`expr "$MAPR_VERSION" : '\([1-9][0-9]*\.[0-9]*\)'`
+_MAPR_VERSION=${MAPR_VERSION/./_}
+MAPR_LIB=${MAPR_LIB_BASE}_${_MAPR_VERSION}-lib
+# Check if this Data Collector support the MapR version
+if [ ! -d "$COR_HOME/coraline-libs/$MAPR_LIB" ]; then
+   echo "Error: StreamSets Data Collector does not support MapR version $MAPR_VERSION"
+  exit 0
+fi
+
+# MEP is stored in separate stage library (for MapR 6 and above)
+if [ ! -z $MAPR_MEP_VERSION ]; then
+  MAPR_MEP_LIB=${MAPR_LIB_BASE}_${_MAPR_VERSION}-mep${MAPR_MEP_VERSION}-lib
+  if [ ! -d "$COR_HOME/coraline-libs/$MAPR_MEP_LIB" ]; then
+     echo "Error: StreamSets Data Collector does not support MapR version $MAPR_VERSION MEP $MAPR_MEP_VERSION (stage library $MAPR_MEP_LIB)"
+    exit 0
+  fi
+fi
+
+# Obtain MapR home
+if [[ -z "${MAPR_HOME}" ]];
+then
+  read -p "Please enter the absolute path of MapR Home (default /opt/mapr): " MAPR_HOME
+fi
+MAPR_HOME=${MAPR_HOME:="/opt/mapr"}
+
+# Check if MAPR_HOME is indeed MapR home directory
+if [ ! -e "${MAPR_HOME}/MapRBuildVersion" ]; then
+  echo "Error: ${MAPR_HOME} is not the correct path to MapR Home"
+  exit 0
+fi
+
+# Remove given library from the list of blacklisted properties
+function blacklist_remove {
+  # Library to be removed from the blacklist
+  STAGE_LIB=$1
+  echo "Enabling $STAGE_LIB"
+
+  original_property=$(grep -i "$BLACKLIST_PROP" "${SDC_PROP_FILE}")
+  blacklist_property=${original_property/${STAGE_LIB},/}
+  sed -i ${BACKUP_EXT} "s/${original_property}/${blacklist_property}/" "${SDC_PROP_FILE}"
+}
+
+# Create MapR specific symlinks for given stage library
+function create_symlinks {
+  STAGE_LIB=$1
+  echo "Working on stage library $STAGE_LIB"
+
+  # Create symbolic links. Ignore the stderr (there will be a lot of symlinks already exist errors)
+  ln -s ${MAPR_HOME}/lib/*.jar ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+  ln -s ${MAPR_HOME}/hadoop/hadoop-*/share/hadoop/common/lib/*.jar ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+  ln -s ${MAPR_HOME}/hadoop/hadoop-*/share/hadoop/mapreduce/lib/*.jar ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+  ln -s ${MAPR_HOME}/hadoop/hadoop-*/share/hadoop/mapreduce/*.jar ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+  ln -s ${MAPR_HOME}/lib/maprfs-${MAPR_VERSION}*.jar  ${COR_HOME}/root-lib/ 2>/dev/null
+  if [ -d ${MAPR_HOME}/hive ];then
+    ln -s ${MAPR_HOME}/hive/hive-*/lib/*.jar ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+    ln -s ${MAPR_HOME}/hive/hive-*/hcatalog/share/hcatalog/*.jar ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+  fi
+  if [ -d ${MAPR_HOME}/hbase ];then
+    ln -s ${MAPR_HOME}/hbase/hbase-*/lib/*.jar  ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/ 2>/dev/null
+  fi
+
+  #SDC-6449 and SDC-10679. Need to remove matrics-core jars to avoid Linkage Error.
+  MAPR_METRICS_CORES=($(ls ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib | grep "metrics-core" ))
+  LIST_OF_JARS=$(printf ",%s" ${MAPR_METRICS_CORES[@]})
+  LIST_OF_JARS=${LIST_OF_JARS:1}
+  if [[ ${LIST_OF_JARS} ]];then
+    printf "Removing symlink to ${LIST_OF_JARS} ...\n"
+    for toDelete in "${MAPR_METRICS_CORES[@]}"
+      do
+        rm ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/${toDelete}
+      done
+    printf "Done.\n"
+  fi
+
+  echo "Removing old Hadoop 0.20 jars ...."
+  rm -rf ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/hadoop-0.20*.jar
+
+  echo "Removing troublesome Jackson dependencies"
+  rm -rf ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/jackson-annotations-2.4.*.jar
+  rm -rf ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/jackson-core-2.4.*.jar
+  rm -rf ${COR_HOME}/coraline-libs/${STAGE_LIB}/lib/jackson-databind-2.4.*.jar
+}
+
+echo ""
+echo "Configuration:"
+echo "COR_HOME=$COR_HOME"
+echo "COR_CONF=$COR_CONF"
+echo "MAPR_HOME=$MAPR_HOME"
+echo "MAPR_VERSION=$MAPR_VERSION"
+echo "MAPR_MEP_VERSION=$MAPR_MEP_VERSION"
+echo ""
+
+echo "Updating cor.properties file ...."
+blacklist_remove $MAPR_LIB
+if [ ! -z $MAPR_MEP_LIB ]; then
+  blacklist_remove $MAPR_MEP_LIB
+fi
+echo "Done."
+echo ""
+
+echo "Symlinking MapR Jar files"
+create_symlinks $MAPR_LIB
+if [ ! -z $MAPR_MEP_LIB ]; then
+  create_symlinks $MAPR_MEP_LIB
+fi
+echo "Done."
+echo ""
+
+# Add permission to coraline-security.policy file
+printf "Updating coraline-security.policy file ..."
+if grep -q "file://${MAPR_HOME}" "${SDC_POLICY_FILE}"; then
+  printf "permission already added.\n"
+else
+  printf "\ngrant codebase \"file://%s/-\" {\n  permission java.security.AllPermission;\n};\n" "${MAPR_HOME}" >> ${SDC_POLICY_FILE}
+  printf "Done\n"
+fi
+
+echo "Succeeded"

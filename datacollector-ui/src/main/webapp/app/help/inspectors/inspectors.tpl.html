@@ -1,0 +1,70 @@
+<div class="panel panel-default page-panel coraline-inspectors-page">
+
+  <div class="panel-heading clearfix">
+    <div class="panel-title size-toolbar">
+      <h3 class="pull-left" translate="inspectors.title">Data Collector Health Inspector</h3>
+    </div>
+    <ul class="list-inline pull-right">
+      <li>
+        <a href="javascript:;" ng-click="expandAll(true);">expand all</a>
+      </li>
+      <li>
+        <a href="javascript:;" ng-click="expandAll(false);">collapse all</a>
+      </li>
+    </ul>
+  </div>
+
+  <div class="panel-body" ng-style="{'height': (windowHeight - 60 - 51) + 'px', 'width': (windowWidth) + 'px'}" resize>
+    <div class="health-inspector-ui" aria-live="polite" aria-relevant="additions removals">
+      <ul class="list-unstyled endpoints">
+        <li ng-repeat="category in categories track by $index" class="inspector" ng-class="{active:category.open}">
+          <div class="clearfix">
+            <ul class="list-inline pull-left inspector-heading">
+              <li>
+                <h4>
+                  <i ng-if="category.severity === 'GREEN'" class="fa fa-check-circle fa-12x"></i>
+                  <i ng-if="category.severity === 'RED'" class="fa fa-times-circle fa-12x"></i>
+                  <i ng-if="category.severity === '?'" class="fa fa-question fa-12x"></i>
+                  <a href="javascript:;" ng-click="toggleOpen(category)" ng-bind="category.categoryInfo.name"></a>
+                </h4>
+              </li>
+            </ul>
+            <ul class="list-inline pull-right inspector-actions">
+              <li ng-if="category.severity !== '?'">
+                <a href="javascript:;" ng-click="rerunCategory(category)">Rerun</a>
+              </li>
+              <li ng-if="category.severity !== '?'">
+                <a href="javascript:;" ng-if="!category.open" ng-click="toggleOpen(category)">open</a>
+                <a href="javascript:;" ng-if="category.open" ng-click="toggleOpen(category)">close</a>
+              </li>
+            </ul>
+          </div>
+          <div class="text-center" ng-if="category.severity === '?'">
+            <i class="fa fa-spinner fa-spin fa-2x"></i>
+          </div>
+          <ul class="list-unstyled collapse operations" ng-class="{in:category.open}">
+            <li ng-repeat="check in category.healthChecks track by $index" class="operation {{check.severity}}">
+              <div class="heading">
+                <div class="clearfix">
+                  <span class="name" ng-bind="check.name"></span>
+                  <span class="description" ng-bind="check.description"></span>
+                  <span ng-if="check.details">
+                    <a href="javascript:;" ng-if="!check.open" ng-click="toggleOpen(check)">Show Output</a>
+                    <a href="javascript:;" ng-if="check.open" ng-click="toggleOpen(check)">Hide Output</a>
+                  </span>
+                  <span class="value pull-right" ng-bind="check.value"></span>
+                </div>
+              </div>
+              <div class="content collapse" ng-class="{in: check.details && check.open}">
+                <div ng-if="check.details">
+                  <pre ng-bind="check.details"></pre>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+</div>

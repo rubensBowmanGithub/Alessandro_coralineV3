@@ -1,0 +1,58 @@
+#
+# Copyright 2019 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+upgraderVersion: 1
+
+# No upgrade rules defined
+upgrades:
+  - toVersion: 2
+    actions:
+      - replaceConfig:
+          name: conf.securityConfig.securityUser
+          ifOldValueMatches: ""
+          newValue: ""
+          elseNewValue: ${value("conf.securityConfig.securityUser")}
+      - setConfig:
+          name: conf.securityConfig.securityPassword
+          value: ""
+  - toVersion: 3
+    actions:
+      - setConfig:
+          lookForName: conf.httpUris
+          elseName: conf.httpUris
+          elseValue: []
+      - setConfigFromJoinedConfigList:
+          listName: conf.httpUris
+          name: conf.connection.serverUrl
+          delimiter: ","
+      - removeConfigs:
+          namePattern: conf.httpUris
+      - renameConfig:
+          oldNamePattern: conf.useSecurity
+          newNamePattern: conf.connection.useSecurity
+      - setConfig:
+          name: conf.connection.port
+          value: "9200"
+      - renameConfig:
+          oldNamePattern: conf.securityConfig.(.*$)
+          newNamePattern: conf.connection.securityConfig.(0)
+      - setConfig:
+          lookForName: conf.connection.securityConfig.sslTrustStorePath
+          ifValueMatches: ".+"
+          name: conf.connection.securityConfig.enableSSL
+          value: true
+          elseName: conf.connection.securityConfig.enableSSL
+          elseValue: false

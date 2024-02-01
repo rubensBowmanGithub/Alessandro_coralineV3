@@ -1,0 +1,357 @@
+#!/bin/bash
+#
+# Copyright 2017 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# resolve links - $0 may be a softlink
+PRG="${0}"
+
+while [ -h "${PRG}" ]; do
+ls=`ls -ld "${PRG}"`
+link=`expr "$ls" : '.*-> \(.*\)$'`
+if expr "$link" : '/.*' > /dev/null; then
+PRG="$link"
+else
+PRG=`dirname "${PRG}"`/"$link"
+fi
+done
+
+BASEDIR=`dirname ${PRG}`
+BASEDIR=`cd ${BASEDIR}/..;pwd`
+
+COR_DIST=${BASEDIR}
+
+COR_HOME=${COR_HOME:=${COR_DIST}}
+
+PRG="${0}"
+VERBOSE=0
+EXEC=0
+SKIP_ENV_SOURCING=0
+while test $# -gt 0; do
+  case "${1}" in
+    -verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -exec)
+      EXEC=1
+      shift
+      ;;
+    -skipenvsourcing)
+      SKIP_ENV_SOURCING=1
+      shift
+      ;;
+    -help)
+      echo ""
+      echo "streamsets dc <OPTIONS>"
+      echo ""
+      echo "  Options:"
+      echo "    -verbose          : prints out Data Collector detailed environment settings"
+      echo "    -exec             : starts Data Collector JVM within the same process of the script"
+      echo "    -skipenvsourcing  : skips the sourcing of the libexec/coraline-env.sh file"
+      echo ""
+      exit 0
+      ;;
+    *)
+      echo ""
+      echo "Invalid option(s)"
+      ${PRG} -help
+      exit 1
+      ;;
+  esac
+done
+
+if [ $SKIP_ENV_SOURCING -eq 0 ]
+then
+  if [ -f ${COR_HOME}/libexec/coraline-env.sh ]
+  then
+    source ${COR_HOME}/libexec/coraline-env.sh
+  fi
+fi
+
+SDC_HOSTNAME=`hostname -f`
+COR_CONF=${COR_CONF:=${COR_HOME}/etc}
+COR_DATA=${COR_DATA:=${COR_HOME}/data}
+COR_LOG=${COR_LOG:=${COR_HOME}/log}
+COR_RESOURCES=${COR_RESOURCES:=${COR_HOME}/resources}
+
+# Use the percentage rate of available memory for the heap size if SDC_HEAP_SIZE_PERCENTAGE is
+# specified and the calculated size is greater than 512m but limited by ulimit and cgroup. Note that
+# /proc/meminfo is used to get the available memory which may not be available in some platforms.
+if [[ -n "${SDC_HEAP_SIZE_PERCENTAGE}" ]] && (( SDC_HEAP_SIZE_PERCENTAGE > 0 )) && (( SDC_HEAP_SIZE_PERCENTAGE < 100 )); then
+  SDC_HEAP_SIZE=`awk -v rate="$SDC_HEAP_SIZE_PERCENTAGE" '/^MemAvailable/ {printf("%.0f", $2 / 100 * rate);}' <(cat /proc/meminfo)`
+  if [[ -n "${SDC_HEAP_SIZE}" ]] && (( SDC_HEAP_SIZE > 524288 )); then
+    echo "INFO: Using ${SDC_HEAP_SIZE_PERCENTAGE}% of available memory for Data Collector heap size: ${SDC_HEAP_SIZE}k"
+    # 50% of ulimit virtual memory in kbytes
+    HALF_ULIMIT_SIZE=`awk '{printf("%.0f", $1 / 2)}' <(ulimit -v)`
+    if [[ -n "${HALF_ULIMIT_SIZE}" ]] && ((HALF_ULIMIT_SIZE > 0 )) && ((HALF_ULIMIT_SIZE < SDC_HEAP_SIZE )); then
+      echo "INFO: Overriding the heap size to 50% of ULIMIT virtual memory limit: ${HALF_ULIMIT_SIZE}k"
+      SDC_HEAP_SIZE=${HALF_ULIMIT_SIZE}
+    fi
+    # 50% of cgroup memory limit in kbytes
+    HALF_CGROUP_SIZE=`awk '{printf("%.0f", $1 / 2048)}' <(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)`
+    if [[ -n "${HALF_CGROUP_SIZE}" ]] && (( HALF_CGROUP_SIZE > 0 )) && (( HALF_CGROUP_SIZE < SDC_HEAP_SIZE )); then
+      echo "INFO: Overriding the heap size to 50% of CGROUP memory limit: ${HALF_CGROUP_SIZE}k"
+      SDC_HEAP_SIZE=${HALF_CGROUP_SIZE}
+    fi
+    COR_JAVA_OPTS="${COR_JAVA_OPTS} -Xmx${SDC_HEAP_SIZE}k -Xms${SDC_HEAP_SIZE}k"
+  fi
+fi
+COR_JAVA_OPTS=${COR_JAVA_OPTS:="-Xmx1024m"}
+SDC_MAIN_CLASS=${SDC_MAIN_CLASS:="com.streamsets.datacollector.main.DataCollectorMain"}
+COR_SECURITY_MANAGER_ENABLED=${COR_SECURITY_MANAGER_ENABLED:="true"}
+COR_HEAPDUMP_PATH=${COR_HEAPDUMP_PATH:=${COR_LOG}/cor_heapdump_`date +%s`.hprof}
+SDC_JVMFATAL_PATH=${SDC_JVMFATAL_PATH:=${COR_LOG}/hs_err_`date +%s`.log}
+
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.dist.dir=${COR_DIST}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.resources.dir=${COR_RESOURCES}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.hostname=${SDC_HOSTNAME}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.conf.dir=${COR_CONF}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.data.dir=${COR_DATA}"
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.log.dir=${COR_LOG}"
+
+BOOTSTRAP_LIB_DIR=${BOOTSTRAP_LIB_DIR:=${COR_DIST}/libexec/bootstrap-libs}
+BOOTSTRAP_JAR_FILE_PATTERN="streamsets-datacollector-bootstrap-*.jar"
+
+for bootstrap_jar_file in ${BOOTSTRAP_LIB_DIR}/main/*; do
+  if [[ ${bootstrap_jar_file} == ${BOOTSTRAP_LIB_DIR}/main/${BOOTSTRAP_JAR_FILE_PATTERN} ]]; then
+    BOOTSTRAP_JAR=${BOOTSTRAP_JAR:=${bootstrap_jar_file}}
+  fi
+done
+
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -javaagent:${BOOTSTRAP_JAR}"
+
+BOOTSTRAP_CLASSPATH="${BOOTSTRAP_JAR}"
+
+if [ ! -z "${COR_ROOT_CLASSPATH}" ]
+then
+  BOOTSTRAP_CLASSPATH="${BOOTSTRAP_CLASSPATH}:${COR_ROOT_CLASSPATH}"
+fi
+
+ROOT_LIB_DIR=${ROOT_LIB_DIR:=${COR_DIST}/root-lib}
+API_LIB_DIR=${API_LIB_DIR:=${COR_DIST}/api-lib}
+API_CLASSPATH=${API_CLASSPATH:="${API_LIB_DIR}/"'*.jar'}
+ASTER_CLIENT_LIB_DIR=${ASTER_CLIENT_LIB_DIR:=${COR_DIST}/aster-client-lib}
+CONTAINER_LIB_DIR=${CONTAINER_LIB_DIR:=${COR_DIST}/container-lib}
+CONTAINER_CLASSPATH=${CONTAINER_CLASSPATH:="${COR_CONF}:${CONTAINER_LIB_DIR}/"'*.jar'}
+
+LIBS_COMMON_LIB_DIR=${LIBS_COMMON_LIB_DIR:="${COR_DIST}/libs-common-lib"}
+
+STREAMSETS_LIBRARIES_DIR="${STREAMSETS_LIBRARIES_DIR:=${COR_DIST}/coraline-libs}"
+
+STREAMSETS_LIBRARIES_EXTRA_DIR="${STREAMSETS_LIBRARIES_EXTRA_DIR:=${COR_DIST}/coraline-libs-extras}"
+
+USER_LIBRARIES_DIR="${USER_LIBRARIES_DIR:=${COR_DIST}/user-libs}"
+
+# add system properties for configurable directories
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -Dcor.libraries.dir=${STREAMSETS_LIBRARIES_DIR} \
+    -Dcor.librariesExtras.dir=${STREAMSETS_LIBRARIES_EXTRA_DIR} \
+    -Dcor.rootLib.dir=${ROOT_LIB_DIR} \
+    -Dcor.bootstrapLib.dir=${BOOTSTRAP_LIB_DIR} \
+    -Dcor.apiLib.dir=${API_LIB_DIR} \
+    -Dcor.asterClientLib.dir=${ASTER_CLIENT_LIB_DIR} \
+    -Dcor.containerLib.dir=${CONTAINER_LIB_DIR} \
+    -Dcor.libsCommon.dir=${LIBS_COMMON_LIB_DIR} \
+    -Dcor.userLibs.dir=${USER_LIBRARIES_DIR}"
+
+if [ -z "$JAVA_HOME" ]
+then
+  JAVA=`which java 2> /dev/null`
+else
+  JAVA="$JAVA_HOME/bin/java"
+fi
+
+if [ -z "$JAVA" ]
+then
+  echo "Can't find java, please set JAVA_HOME pointing to your java installation"
+  exit 1
+fi
+
+# returns the JDK version.
+# 8 for 1.8.0_nn, 11 for 11-ea etc, and "no_java" for undetected
+jdk_version() {
+  local result
+  local IFS=$'\n'
+  # remove \r for Cygwin
+  local lines=$("$JAVA" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
+  for line in $lines; do
+    if [[ (-z $result) && ($line = *"version \""*) ]]
+    then
+      local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
+      # on macOS, sed doesn't support '?'
+      if [[ $ver = "1."* ]]
+      then
+        result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
+      else
+        result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
+      fi
+    fi
+  done
+  echo "$result"
+}
+
+JAVA_VERSION="$(jdk_version)"
+if [[ "$JAVA_VERSION" = '7' ]];
+then
+  echo "ERROR: Detected JDK7 that is no longer supported. Please upgrade to JDK 8+."
+  exit
+elif [[ "$JAVA_VERSION" = '8' ]];
+then
+  echo "Java 1.8 detected; adding \$COR_JAVA8_OPTS of \"${COR_JAVA8_OPTS}\" to \$COR_JAVA_OPTS"
+  COR_JAVA_OPTS="${COR_JAVA_OPTS} ${COR_JAVA8_OPTS}"
+
+  if [ "${COR_GC_LOGGING}" = "true" ]
+  then
+    COR_JAVA_OPTS="${COR_JAVA_OPTS} -XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:${COR_LOG}/gc.log"
+  fi
+elif [[ "$JAVA_VERSION" = '11' ]];
+then
+  echo "Java 11 detected; adding \$COR_JAVA11_OPTS of \"${COR_JAVA11_OPTS}\" to \$COR_JAVA_OPTS"
+  COR_JAVA_OPTS="${COR_JAVA_OPTS} ${COR_JAVA11_OPTS}"
+
+  if [ "${COR_GC_LOGGING}" = "true" ]
+  then
+    COR_JAVA_OPTS="${COR_JAVA_OPTS} -Xlog:gc:${COR_LOG}/gc.log:time,uptime"
+  fi
+elif [[ "$JAVA_VERSION" = '14' ]];
+then
+  echo "Java 14 detected; adding \$COR_JAVA14_OPTS of \"${COR_JAVA14_OPTS}\" to \$COR_JAVA_OPTS"
+  COR_JAVA_OPTS="${COR_JAVA_OPTS} ${COR_JAVA14_OPTS}"
+
+  if [ "${COR_GC_LOGGING}" = "true" ]
+  then
+    COR_JAVA_OPTS="${COR_JAVA_OPTS} -Xlog:gc:${COR_LOG}/gc.log:time,uptime"
+  fi
+elif [[ "$JAVA_VERSION" = '15' ]];
+then
+  echo "Java 15 detected; adding \$COR_JAVA15_OPTS of \"${COR_JAVA15_OPTS}\" to \$COR_JAVA_OPTS"
+  COR_JAVA_OPTS="${COR_JAVA_OPTS} ${COR_JAVA15_OPTS}"
+
+  if [ "${COR_GC_LOGGING}" = "true" ]
+  then
+    COR_JAVA_OPTS="${COR_JAVA_OPTS} -Xlog:gc:${COR_LOG}/gc.log:time,uptime"
+  fi
+else
+  echo "WARN: could not determine Java environment version: \"${JAVA_VERSION}\" ; expected 1.8, 11 or 14, which are the supported versions" >&2
+fi
+
+# Verify correct JVM vendor
+JAVA_VENDOR=`$JAVA -XshowSettings:properties -version 2>&1 | grep -e 'java.vm.name' | sed -e 's/\(.*\)= \(.*\)/\2/'`
+if [[ ! "$JAVA_VENDOR" =~ "Java HotSpot(TM)" ]] && [[ ! "$JAVA_VENDOR" =~ "OpenJDK" ]]
+then
+  echo "WARN: Detected unsupported JDK vendor: $JAVA_VENDOR"
+
+  # And unless unsupported JDK is explicitly enabled, die
+  if [[ "${COR_ALLOW_UNSUPPORTED_JDK}" != "true" ]]
+  then
+  echo "ERROR: Please install supported JDK or explicitly allow unsupported JDKs via COR_ALLOW_UNSUPPORTED_JDK=true"
+    exit 1
+  fi
+fi
+
+if [ "${COR_HEAPDUMP_ON_OOM}" = "true" ]
+then
+  COR_JAVA_OPTS="${COR_JAVA_OPTS} -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${COR_HEAPDUMP_PATH}"
+fi
+
+# Adding JVM Fatal Error Log file path
+COR_JAVA_OPTS="${COR_JAVA_OPTS} -XX:ErrorFile=${SDC_JVMFATAL_PATH}"
+
+SDC_POLICY_FILE=""
+if [ "${COR_SECURITY_MANAGER_ENABLED}" = "true" ]
+then
+  SDC_POLICY_FILE=${SDC_POLICY_FILE:="file://${COR_CONF}/coraline-security.policy"}
+  if [[ "$SDC_POLICY_FILE" =~ (file:)(.*) ]]
+  then
+      SDC_POLICY_FILE_FOR_VALIDATION="${BASH_REMATCH[2]}"
+  else
+      SDC_POLICY_FILE_FOR_VALIDATION="$SDC_POLICY_FILE"
+  fi
+  if [[ ! -f "$SDC_POLICY_FILE_FOR_VALIDATION" ]]
+  then
+    echo "WARN: Security is enabled and was unable to verify policy file '$SDC_POLICY_FILE'" 1>&2
+  fi
+  SDC_SECURITY_MANAGER="-Djava.security.manager -Djava.security.policy=${SDC_POLICY_FILE}"
+  COR_JAVA_OPTS="${SDC_SECURITY_MANAGER} ${COR_JAVA_OPTS}"
+fi
+
+if [ $VERBOSE -eq 1 ];
+then
+  echo "SDC Agent:"
+  echo "  DIST                           : ${COR_DIST}"
+  echo "  HOME                           : ${COR_HOME}"
+  echo "  CONF                           : ${COR_CONF}"
+  echo "  DATA                           : ${COR_DATA}"
+  echo "  LOG                            : ${COR_LOG}"
+  echo "  RESOURCES                      : ${COR_RESOURCES}"
+  echo "  KAFKA_JAAS_CONF                : ${SDC_KAFKA_JAAS_CONF}"
+  echo "  KRB5CCNAME                     : ${KRB5CCNAME}"
+  echo "  SECURITY MANAGER POLICY        : ${SDC_POLICY_FILE}"
+  echo "  JAVA PATH                      : ${JAVA}"
+  echo "  BOOTSTRAP_CLASSPATH            : ${BOOTSTRAP_CLASSPATH}"
+  echo "  API_CLASSPATH                  : ${API_CLASSPATH}"
+  echo "  CONTAINER_CLASSPATH            : ${CONTAINER_CLASSPATH}"
+  echo "  LIBS_COMMON_LIB_DIR            : ${LIBS_COMMON_LIB_DIR}"
+  echo "  STREAMSETS_LIBRARIES_DIR       : ${STREAMSETS_LIBRARIES_DIR}"
+  echo "  STREAMSETS_LIBRARIES_EXTRA_DIR : ${STREAMSETS_LIBRARIES_EXTRA_DIR}"
+  echo "  USER_LIBRARIES_DIR             : ${USER_LIBRARIES_DIR}"
+  echo "  JAVA OPTS                      : ${COR_JAVA_OPTS}"
+  echo "  MAIN CLASS                     : ${SDC_MAIN_CLASS}"
+fi
+
+cd ${COR_DIST}
+
+ulimit=`ulimit -n`
+if [[ $ulimit -lt $COR_FILE_LIMIT ]]; then
+  echo "Configuration of maximum open file limit is too low: $ulimit (expected at least $COR_FILE_LIMIT). Please consult https://goo.gl/6dmjXd"
+  exit 1
+fi
+
+EXTRA_OPTIONS=""
+if [ -n "${STREAMSETS_LIBRARIES_EXTRA_DIR}" ]
+then
+  EXTRA_OPTIONS="-streamsetsLibrariesExtraDir ${STREAMSETS_LIBRARIES_EXTRA_DIR}"
+fi
+
+# we may need to exec the process in some cases. This is determined by option "-exec"
+# Restart will not be possible in such a case
+
+if [ $EXEC -eq 1 ]; then
+  exec ${JAVA} -classpath ${BOOTSTRAP_CLASSPATH} ${COR_JAVA_OPTS} com.streamsets.pipeline.BootstrapMain \
+       -mainClass ${SDC_MAIN_CLASS} -apiClasspath "${API_CLASSPATH}" -containerClasspath "${CONTAINER_CLASSPATH}" \
+       -streamsetsLibrariesDir "${STREAMSETS_LIBRARIES_DIR}" -userLibrariesDir "${USER_LIBRARIES_DIR}" -configDir ${COR_CONF} \
+       -libsCommonLibDir "${LIBS_COMMON_LIB_DIR}" ${EXTRA_OPTIONS}
+
+  status=$?
+else
+  status=88
+  while [ $status = 88 ]; do
+    ${JAVA} -classpath ${BOOTSTRAP_CLASSPATH} ${COR_JAVA_OPTS} com.streamsets.pipeline.BootstrapMain \
+    -mainClass ${SDC_MAIN_CLASS} -apiClasspath "${API_CLASSPATH}" -containerClasspath "${CONTAINER_CLASSPATH}" \
+    -streamsetsLibrariesDir "${STREAMSETS_LIBRARIES_DIR}" -userLibrariesDir "${USER_LIBRARIES_DIR}" -configDir ${COR_CONF} \
+    -libsCommonLibDir "${LIBS_COMMON_LIB_DIR}" ${EXTRA_OPTIONS}
+
+    status=$?
+  done
+fi
+
+# Remove credential cache if exists
+#
+if [ -f ${COR_DATA}/sdc-krb5.ticketCache ]; then
+  rm ${COR_DATA}/sdc-krb5.ticketCache
+fi
+
+echo "Exit: $status"
+exit $status

@@ -1,0 +1,80 @@
+#
+# Copyright 2020 StreamSets Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+upgraderVersion: 1
+
+upgrades:
+  - toVersion: 2
+    actions:
+      - setConfig:
+          name: conf.remoteConfig.useRemoteKeyStore
+          value: false
+      - setConfig:
+          name: conf.remoteConfig.ftpsPrivateKey
+          value: ""
+      - setConfig:
+          name: conf.remoteConfig.ftpsCertificateChain
+          value: []
+      - setConfig:
+          name: conf.remoteConfig.ftpsTrustedCertificates
+          value: []
+  - toVersion: 3
+    actions:
+      - setConfig:
+          lookForName: conf.remoteConfig.remoteAddress
+          ifValueMatches: "^ftp:.*"
+          name: conf.remoteConfig.connection.protocol
+          value: "FTP"
+      - setConfig:
+          lookForName: conf.remoteConfig.remoteAddress
+          ifValueMatches: "^ftps:.*"
+          name: conf.remoteConfig.connection.protocol
+          value: "FTPS"
+      - setConfig:
+          lookForName: conf.remoteConfig.remoteAddress
+          ifValueMatches: "^sftp:.*"
+          name: conf.remoteConfig.connection.protocol
+          value: "SFTP"
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.remoteAddress
+          newNamePattern: conf.remoteConfig.connection.remoteAddress
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.ftpsMode
+          newNamePattern: conf.remoteConfig.connection.ftpsMode
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.ftpsDataChannelProtectionLevel
+          newNamePattern: conf.remoteConfig.connection.ftpsDataChannelProtectionLevel
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.auth
+          newNamePattern: conf.remoteConfig.connection.credentials.auth
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.username
+          newNamePattern: conf.remoteConfig.connection.credentials.username
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.password
+          newNamePattern: conf.remoteConfig.connection.credentials.password
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.strictHostChecking
+          newNamePattern: conf.remoteConfig.connection.credentials.strictHostChecking
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.knownHosts
+          newNamePattern: conf.remoteConfig.connection.credentials.knownHosts
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.useFTPSClientCert
+          newNamePattern: conf.remoteConfig.connection.credentials.useFTPSClientCert
+      - renameConfig:
+          oldNamePattern: conf.remoteConfig.ftpsTrustStoreProvider
+          newNamePattern: conf.remoteConfig.connection.credentials.ftpsTrustStoreProvider
