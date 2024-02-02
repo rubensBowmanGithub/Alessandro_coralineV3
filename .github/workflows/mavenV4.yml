@@ -51,6 +51,7 @@ jobs:
 
     - name: Set up Grunt CLI v1.4.3 and build
       run: |
+        cd /datacollector-ui
         npm install -g grunt-cli@1.4.3
         npm install
         grunt build
