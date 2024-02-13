@@ -1,3 +1,4 @@
+
 name: CI
 
 on: push
@@ -14,13 +15,15 @@ jobs:
     container: ${{ matrix.container }}
     steps:
       - run: cat /etc/*release
-      - name: Install Node.js and npm on CentOS 7
+      - name: Install Node.js on CentOS 7
         if: matrix.container == 'centos:7'
         run: |
-          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-          source ~/.bashrc
-          nvm install 12  # Install Node.js version 12
-          nvm use 12
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          source ~/.nvm/nvm.sh
+          nvm install 14
+          # Aggiungi il percorso di nvm all'ambiente
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
       - name: Set up Node.js 14
         uses: actions/setup-node@v4
         with:
@@ -28,6 +31,10 @@ jobs:
         if: matrix.container != 'centos:7'
       - name: Verify Node.js installation
         run: |
+          # Aggiungi il percorso di nvm all'ambiente
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          # Verifica l'installazione di Node.js e npm
           node --version && npm --version
     
       - name: Install npm and Bower
