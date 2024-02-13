@@ -20,10 +20,10 @@ jobs:
     container: 'centos:7'
 
     steps:
-    - name: Set up Node.js 14
+    - name: Set up Node.js 12
       uses: actions/setup-node@v4
       with:
-        node-version: '14'
+        node-version: '12'
     
     - name: Install npm and Bower
       run: |
