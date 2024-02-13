@@ -35,3 +35,32 @@ jobs:
           [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
           # Verifica l'installazione di Node.js e npm
           node --version && npm --version
+    
+    - name: Install npm and Bower
+      run: |
+        npm install -g npm@8.19.2
+        npm install -g bower@1.8.14
+    - uses: actions/checkout@v3
+
+    - name: Set up JDK 1.8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'  # Use '8' instead of '1.8'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Copy custom settings.xml and archetype-catalog.xml
+      run: |
+      
+        mkdir -p $HOME/.m2
+        cp -r .m2/settings.xml $HOME/.m2/
+        cp -r .m2/archetype-catalog.xml $HOME/.m2/
+    - name: Build with Maven
+      run: mvn -B package -P docs,ui,dist,rpm -DskipTests --file pom.xml
+
+    - name: Set up Grunt CLI v1.4.3 and build
+      run: |
+        cd /home/runner/work/Alessandro_coralineV3/Alessandro_coralineV3/datacollector-ui/
+        npm install -g grunt-cli@1.4.3
+        npm install
+        grunt build
