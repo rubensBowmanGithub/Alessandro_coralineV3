@@ -25,3 +25,5 @@ jobs:
         with:
           node-version: '14'
         if: matrix.container != 'centos:7'
+      - name: Verify Node.js installation
+        run: node --version && npm --version
