@@ -1,67 +1,25 @@
-# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
 
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
 
-name: Java CI with Maven
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+name: CI
+
+on: push
 
 jobs:
   linux:
     strategy:
       matrix:
         container:
-        - 'centos:7'
+        - 'debian:7'
+        - 'debian:testing'
+        - 'ubuntu:14.04'
+        - 'ubuntu:devel'
+        - 'centos:6'
         - 'centos:latest'
     runs-on: ubuntu-latest
     container: ${{ matrix.container }}
-
     steps:
-    - name: Set up Node.js 14
-      uses: actions/setup-node@v4
-      with:
-        node-version: '14'
-    
-    - name: Install npm and Bower
-      run: |
-        npm install -g npm@8.19.2
-        npm install -g bower@1.8.14
+      - run: cat /etc/*release
 
-    - uses: actions/checkout@v3
 
-    - name: Set up JDK 1.8
-      uses: actions/setup-java@v3
-      with:
-        java-version: '8'  # Use '8' instead of '1.8'
-        distribution: 'temurin'
-        cache: maven
-
-    - name: Install Maven
-      run: |
-        yum install -y maven
-
-    - name: Copy custom settings.xml and archetype-catalog.xml
-      run: |
-      
-        mkdir -p $HOME/.m2
-        cp -r .m2/settings.xml $HOME/.m2/
-        cp -r .m2/archetype-catalog.xml $HOME/.m2/
-
-    - name: Build with Maven
-      run: mvn -B package -P docs,ui,dist,rpm -DskipTests --file pom.xml
-
-    - name: Set up Grunt CLI v1.4.3 and build
-      run: |
-        cd /home/runner/work/Alessandro_coralineV3/Alessandro_coralineV3/datacollector-ui/
-        npm install -g grunt-cli@1.4.3
-        npm install
-        grunt build
 
