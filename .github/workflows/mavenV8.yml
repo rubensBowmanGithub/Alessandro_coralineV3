@@ -39,6 +39,10 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
+    - name: Install Maven
+      run: |
+        yum install -y maven
+
     - name: Copy custom settings.xml and archetype-catalog.xml
       run: |
       
