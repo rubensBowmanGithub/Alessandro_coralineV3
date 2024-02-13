@@ -16,8 +16,8 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    container: 'centos:latest'
 
     steps:
     - name: Set up Node.js 14
@@ -55,5 +55,4 @@ jobs:
         npm install -g grunt-cli@1.4.3
         npm install
         grunt build
-
 
