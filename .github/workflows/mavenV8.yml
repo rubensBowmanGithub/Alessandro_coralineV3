@@ -17,13 +17,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: 'centos:7'
+    container: 'centos:9'
 
     steps:
-    - name: Set up Node.js 12
+    - name: Set up Node.js 14
       uses: actions/setup-node@v4
       with:
-        node-version: '12'
+        node-version: '14'
     
     - name: Install npm and Bower
       run: |
