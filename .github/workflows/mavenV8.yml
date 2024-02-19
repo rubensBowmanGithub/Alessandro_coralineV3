@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         container:
-          - 'ubuntu:latest'
+          - 'centos:7'
           - 'centos:latest'
     runs-on: ubuntu-latest
     container: ${{ matrix.container }}
