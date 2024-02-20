@@ -13,4 +13,19 @@ jobs:
     container: ${{ matrix.container }}
     steps:
       - run: cat /etc/*release
+      
+      - name: Checkout del codice
+      uses: actions/checkout@v2
+      
+    - name: Creare la cartella se non esiste
+      run: mkdir -p scaricareRpms
+      
+    - name: Creare un file nella cartella (opzionale)
+      run: echo "Contenuto del file" > scaricareRpms/nome_file.txt
+      
+    - name: Archiviare la cartella
+      uses: actions/upload-artifact@v2
+      with:
+        name: scaricareRpms
+        path: scaricareRpms
      
