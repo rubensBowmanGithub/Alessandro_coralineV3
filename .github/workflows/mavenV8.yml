@@ -29,3 +29,8 @@ jobs:
         with:
           name: scaricareRpms
           path: scaricareRpms
+
+      - name: Visualizza lo stato di Docker
+        run: |
+          sudo systemctl status docker
+          docker ps -a
